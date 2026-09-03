@@ -1,4 +1,5 @@
 import path from "path";
+import fs from "fs";
 import { readZipEntry, findZipEntryName, listZipEntryNames } from "../../src/zip";
 import { UnsupportedFileError } from "../../src/errors";
 
@@ -32,7 +33,6 @@ test("findZipEntryName returns undefined when nothing matches", async () => {
 });
 
 test("works from a Buffer, not just a file path", async () => {
-  const fs = require("fs");
   const buf = fs.readFileSync(APK_FIXTURE);
   const names = await listZipEntryNames(buf);
   expect(names).toContain("AndroidManifest.xml");
@@ -43,7 +43,6 @@ test("a non-zip input throws UnsupportedFileError", async () => {
 });
 
 test("readZipEntry rejects with UnsupportedFileError when entry local header is corrupted", async () => {
-  const fs = require("fs");
   const corruptedPath = path.join(__dirname, "../fixtures/real/corrupted-entry.apk");
 
   // corrupted-entry.apk has the first entry's local header corrupted but enumeration succeeds
