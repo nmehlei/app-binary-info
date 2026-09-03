@@ -22,13 +22,15 @@ function readEntryStream(zipfile: ZipFile, entry: Entry): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     zipfile.openReadStream(entry, (err, stream) => {
       if (err || !stream) {
-        reject(err ?? new Error("failed to open zip entry stream"));
+        reject(new UnsupportedFileError(`failed to open zip entry: ${err?.message ?? "unknown error"}`));
         return;
       }
       const chunks: Buffer[] = [];
       stream.on("data", (chunk: Buffer) => chunks.push(chunk));
       stream.on("end", () => resolve(Buffer.concat(chunks)));
-      stream.on("error", reject);
+      stream.on("error", (streamErr: Error) => {
+        reject(new UnsupportedFileError(`failed to read zip entry: ${streamErr.message}`));
+      });
     });
   });
 }
@@ -43,7 +45,9 @@ export function listZipEntryNames(input: string | Buffer): Promise<string[]> {
         zipfile.readEntry();
       });
       zipfile.on("end", () => resolve(names));
-      zipfile.on("error", reject);
+      zipfile.on("error", (err: Error) => {
+        reject(new UnsupportedFileError(`corrupted zip file: ${err.message}`));
+      });
       zipfile.readEntry();
     }, reject);
   });
@@ -60,7 +64,10 @@ export function readZipEntry(input: string | Buffer, entryName: string): Promise
           readEntryStream(zipfile, entry).then((buf) => {
             zipfile.close();
             resolve(buf);
-          }, reject);
+          }, (err) => {
+            zipfile.close();
+            reject(err);
+          });
         } else {
           zipfile.readEntry();
         }
@@ -68,7 +75,9 @@ export function readZipEntry(input: string | Buffer, entryName: string): Promise
       zipfile.on("end", () => {
         if (!found) resolve(undefined);
       });
-      zipfile.on("error", reject);
+      zipfile.on("error", (err: Error) => {
+        reject(new UnsupportedFileError(`corrupted zip file: ${err.message}`));
+      });
       zipfile.readEntry();
     }, reject);
   });
@@ -89,7 +98,9 @@ export function findZipEntryName(
         zipfile.readEntry();
       });
       zipfile.on("end", () => resolve(found));
-      zipfile.on("error", reject);
+      zipfile.on("error", (err: Error) => {
+        reject(new UnsupportedFileError(`corrupted zip file: ${err.message}`));
+      });
       zipfile.readEntry();
     }, reject);
   });

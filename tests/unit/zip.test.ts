@@ -41,3 +41,18 @@ test("works from a Buffer, not just a file path", async () => {
 test("a non-zip input throws UnsupportedFileError", async () => {
   await expect(listZipEntryNames(Buffer.from("not a zip file at all"))).rejects.toThrow(UnsupportedFileError);
 });
+
+test("listZipEntryNames rejects with UnsupportedFileError on corrupted zip", async () => {
+  const corruptedPath = path.join(__dirname, "../fixtures/real/corrupted.apk");
+  await expect(listZipEntryNames(corruptedPath)).rejects.toThrow(UnsupportedFileError);
+});
+
+test("readZipEntry rejects with UnsupportedFileError on corrupted zip", async () => {
+  const corruptedPath = path.join(__dirname, "../fixtures/real/corrupted.apk");
+  await expect(readZipEntry(corruptedPath, "AndroidManifest.xml")).rejects.toThrow(UnsupportedFileError);
+});
+
+test("findZipEntryName rejects with UnsupportedFileError on corrupted zip", async () => {
+  const corruptedPath = path.join(__dirname, "../fixtures/real/corrupted.apk");
+  await expect(findZipEntryName(corruptedPath, (n) => n.endsWith(".xml"))).rejects.toThrow(UnsupportedFileError);
+});
