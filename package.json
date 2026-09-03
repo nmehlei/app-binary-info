@@ -1,0 +1,40 @@
+{
+  "name": "app-binary-info",
+  "version": "0.1.0",
+  "description": "Zero-dependency (besides a zip reader) parser for Android APK and iOS IPA app metadata - package/bundle id, version name and code, straight from the binary.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsup",
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests"
+  },
+  "dependencies": {
+    "yauzl": "3.4.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.30",
+    "@types/yauzl": "3.4.0",
+    "@typescript-eslint/eslint-plugin": "^8.5.0",
+    "@typescript-eslint/parser": "^8.5.0",
+    "eslint": "^9.9.0",
+    "jest": "30.5.1",
+    "ts-jest": "^29.2.5",
+    "tsup": "8.5.1",
+    "typescript": "^5.5.4"
+  }
+}
