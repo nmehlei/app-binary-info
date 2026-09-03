@@ -45,6 +45,77 @@ function readUtf16PoolString(buf: Buffer, offset: number): string {
   return buf.toString("utf16le", start, start + charCount * 2);
 }
 
+export interface AndroidManifestInfo {
+  packageName: string;
+  versionCode?: number;
+  versionName?: string;
+}
+
+const TYPE_STRING = 0x03;
+
+export function parseAndroidManifest(buf: Buffer): AndroidManifestInfo {
+  if (buf.length < CHUNK_HEADER_SIZE) {
+    throw new ParseError("AndroidManifest.xml is too short to be a valid binary XML file");
+  }
+
+  let offset = CHUNK_HEADER_SIZE; // skip the outer RES_XML_TYPE document chunk header
+  let pool: StringPool | undefined;
+
+  while (offset < buf.length) {
+    const header = readChunkHeader(buf, offset);
+    if (header.size <= 0 || offset + header.size > buf.length) {
+      throw new ParseError(`malformed chunk at offset ${offset}: size ${header.size} exceeds buffer length ${buf.length}`);
+    }
+
+    if (header.type === RES_STRING_POOL_TYPE) {
+      pool = parseStringPool(buf, offset, header);
+    } else if (header.type === RES_XML_START_ELEMENT_TYPE) {
+      if (!pool) throw new ParseError("found a START_TAG chunk before any string pool");
+      return extractManifestAttributes(buf, offset, pool);
+    }
+
+    offset += header.size;
+  }
+
+  throw new ParseError("no <manifest> start tag found in AndroidManifest.xml");
+}
+
+function extractManifestAttributes(buf: Buffer, chunkStart: number, pool: StringPool): AndroidManifestInfo {
+  // ResXMLTree_node: chunk header (8) + lineNumber:u32 + comment:u32 = 16
+  // bytes before ResXMLTree_attrExt begins.
+  const attrExtStart = chunkStart + 16;
+  const attributeStart = buf.readUInt16LE(attrExtStart + 8);
+  const attributeSize = buf.readUInt16LE(attrExtStart + 10);
+  const attributeCount = buf.readUInt16LE(attrExtStart + 12);
+  const attrsBase = attrExtStart + attributeStart;
+
+  let packageName: string | undefined;
+  let versionCode: number | undefined;
+  let versionName: string | undefined;
+
+  for (let i = 0; i < attributeCount; i++) {
+    const attrOffset = attrsBase + i * attributeSize;
+    const nameIdx = buf.readUInt32LE(attrOffset + 4);
+    const rawValueIdx = buf.readInt32LE(attrOffset + 8);
+    const dataType = buf.readUInt8(attrOffset + 15); // typedValue: size(2)+res0(1)+dataType(1) at +12
+    const data = buf.readUInt32LE(attrOffset + 16);
+
+    const attrName = pool.strings[nameIdx];
+    if (attrName === "package") {
+      packageName = rawValueIdx >= 0 ? pool.strings[rawValueIdx] : pool.strings[data];
+    } else if (attrName === "versionCode") {
+      versionCode = data;
+    } else if (attrName === "versionName") {
+      versionName = dataType === TYPE_STRING ? pool.strings[data] : String(data);
+    }
+  }
+
+  if (!packageName) {
+    throw new ParseError("AndroidManifest.xml's <manifest> tag has no package attribute");
+  }
+  return { packageName, versionCode, versionName };
+}
+
 function readUtf8PoolString(buf: Buffer, offset: number): string {
   // UTF-8 pool entries are length-prefixed twice (char count, then byte
   // length) - each prefix is one byte unless its high bit is set, in which

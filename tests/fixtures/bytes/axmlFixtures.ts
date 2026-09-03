@@ -52,3 +52,53 @@ export function wrapChunk(type: number, headerSize: number, body: Buffer): Buffe
   header.writeUInt32LE(8 + body.length, 4);
   return Buffer.concat([header, body]);
 }
+
+export interface AxmlAttribute {
+  nameIndex: number;
+  rawValueIndex: number; // -1 if the value isn't a plain string reference
+  dataType: number;
+  data: number;
+}
+
+export function buildStartTagChunk(attributes: AxmlAttribute[]): Buffer {
+  // ResXMLTree_attrExt is 20 bytes: ns(4) + name(4) + attributeStart(2) +
+  // attributeSize(2) + attributeCount(2) + idIndex(2) + classIndex(2) +
+  // styleIndex(2). Attribute records follow immediately after it.
+  const attrExtHeaderSize = 20;
+  const attrRecordSize = 20;
+  const attrExt = Buffer.alloc(attrExtHeaderSize + attributes.length * attrRecordSize);
+  attrExt.writeUInt32LE(0xffffffff, 0); // ns = -1 (none)
+  attrExt.writeUInt32LE(0, 4); // name (string index for "manifest" - unused by the parser)
+  attrExt.writeUInt16LE(attrExtHeaderSize, 8); // attributeStart, relative to this header
+  attrExt.writeUInt16LE(attrRecordSize, 10); // attributeSize
+  attrExt.writeUInt16LE(attributes.length, 12); // attributeCount
+  attrExt.writeUInt16LE(0, 14); // idIndex
+  attrExt.writeUInt16LE(0, 16); // classIndex
+  attrExt.writeUInt16LE(0, 18); // styleIndex
+
+  attributes.forEach((a, i) => {
+    const off = attrExtHeaderSize + i * attrRecordSize;
+    attrExt.writeUInt32LE(0xffffffff, off); // ns
+    attrExt.writeUInt32LE(a.nameIndex, off + 4);
+    attrExt.writeInt32LE(a.rawValueIndex, off + 8);
+    attrExt.writeUInt16LE(8, off + 12); // typedValue.size
+    attrExt.writeUInt8(0, off + 14); // typedValue.res0
+    attrExt.writeUInt8(a.dataType, off + 15); // typedValue.dataType
+    attrExt.writeUInt32LE(a.data, off + 16); // typedValue.data
+  });
+
+  const nodeHeader = Buffer.alloc(8); // lineNumber:u32, comment:u32 (-1 = none)
+  nodeHeader.writeUInt32LE(1, 0);
+  nodeHeader.writeInt32LE(-1, 4);
+
+  return wrapChunk(0x0102, 16, Buffer.concat([nodeHeader, attrExt]));
+}
+
+/** A full minimal AXML document: outer RES_XML_TYPE header, one string
+ * pool, one <manifest> START_TAG with the given attributes. */
+export function buildMinimalManifestAxml(strings: string[], attributes: AxmlAttribute[]): Buffer {
+  const pool = buildStringPoolChunk(strings, false);
+  const startTag = buildStartTagChunk(attributes);
+  const body = Buffer.concat([pool, startTag]);
+  return wrapChunk(0x0003, 8, body);
+}
