@@ -83,6 +83,12 @@ export function readBinaryPlistStrings(buf: Buffer, keys: string[]): Record<stri
   const topObjectIndex = Number(trailer.readBigUInt64BE(16));
   const offsetTableOffset = Number(trailer.readBigUInt64BE(24));
 
+  if (offsetIntSize < 1 || objectRefSize < 1) {
+    throw new ParseError("binary plist trailer has an invalid offsetIntSize/objectRefSize");
+  }
+  if (numObjects < 0 || numObjects > buf.length) {
+    throw new ParseError("binary plist trailer reports an implausible object count");
+  }
   need(buf, offsetTableOffset, numObjects * offsetIntSize, "binary plist offset table");
   const objectOffsets: number[] = [];
   for (let i = 0; i < numObjects; i++) {
@@ -94,7 +100,7 @@ export function readBinaryPlistStrings(buf: Buffer, keys: string[]): Record<stri
       throw new ParseError(`binary plist object reference ${ref} is outside the ${objectOffsets.length}-entry offset table`);
     }
     const off = objectOffsets[ref];
-    need(buf, off, 0, "binary plist object");
+    need(buf, off, 1, "binary plist object");
     return off;
   };
 

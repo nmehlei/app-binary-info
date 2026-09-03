@@ -21,6 +21,9 @@ function need(buf: Buffer, offset: number, len: number, what: string): void {
 }
 
 export function readChunkHeader(buf: Buffer, offset: number): ChunkHeader {
+  if (offset < 0 || offset + 8 > buf.length) {
+    throw new ParseError(`chunk header read of 8 bytes at offset ${offset} is outside the ${buf.length}-byte buffer`);
+  }
   return {
     type: buf.readUInt16LE(offset),
     headerSize: buf.readUInt16LE(offset + 2),
@@ -33,6 +36,7 @@ export interface StringPool {
 }
 
 export function parseStringPool(buf: Buffer, chunkStart: number, header: ChunkHeader): StringPool {
+  need(buf, chunkStart, 24, "string pool header");
   const stringCount = buf.readUInt32LE(chunkStart + 8);
   const flags = buf.readUInt32LE(chunkStart + 16);
   const stringsStart = buf.readUInt32LE(chunkStart + 20);

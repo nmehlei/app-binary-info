@@ -110,3 +110,43 @@ test("reads a short (non-extended-count) string correctly - the real fixture's v
   const values = readBinaryPlistStrings(buf, ["a"]);
   expect(values).toEqual({ a: "hi" });
 });
+
+test("readBinaryPlistStrings throws ParseError, not a raw RangeError, for a 1-byte-truncated trailer (offsetIntSize reads as 0)", () => {
+  // Truncating the real fixture by 1 byte shifts the whole 32-byte trailer
+  // window, so offsetIntSize reads as 0 and numObjects reads as an
+  // enormous garbage 64-bit value. The old code's need() check computes
+  // numObjects * offsetIntSize = numObjects * 0 = 0, a "valid" zero-length
+  // read that lets the corrupted numObjects straight through to the offset
+  // table loop, which then blows up with a raw "Invalid array length"
+  // RangeError instead of a ParseError.
+  const buf = fs.readFileSync(REAL_BPLIST);
+  const truncated = buf.subarray(0, buf.length - 1);
+  expect(() => readBinaryPlistStrings(truncated, ["CFBundleIdentifier"])).toThrow(ParseError);
+});
+
+test("readBinaryPlistStrings throws ParseError, not a raw RangeError, when the top object's ref resolves to exactly buf.length", () => {
+  // Hand-built minimal bplist whose sole offset-table entry (for the top
+  // object) points exactly at buf.length (one byte past the end of the
+  // file). resolveOffset's old `need(buf, off, 0, ...)` check is a
+  // zero-length read, so it passes even when off === buf.length; the
+  // direct `buf.readUInt8(rootOffset)` right after resolving the top
+  // object (this call site has no need() guard of its own - unlike every
+  // string read, which does) then throws a raw RangeError instead of a
+  // ParseError.
+  const offsetTableOffset = 8; // right after "bplist00"
+  const TRAILER_SIZE = 32;
+  const totalLength = offsetTableOffset + 1 /* one offset table entry */ + TRAILER_SIZE;
+
+  const offsetTable = Buffer.from([totalLength]); // object #0's offset == buf.length
+
+  const trailer = Buffer.alloc(TRAILER_SIZE);
+  trailer.writeUInt8(1, 6); // offsetIntSize
+  trailer.writeUInt8(1, 7); // objectRefSize
+  trailer.writeBigUInt64BE(BigInt(1), 8); // numObjects
+  trailer.writeBigUInt64BE(BigInt(0), 16); // topObjectIndex (object #0)
+  trailer.writeBigUInt64BE(BigInt(offsetTableOffset), 24);
+
+  const buf = Buffer.concat([Buffer.from("bplist00", "ascii"), offsetTable, trailer]);
+  expect(buf.length).toBe(totalLength);
+  expect(() => readBinaryPlistStrings(buf, ["a"])).toThrow(ParseError);
+});

@@ -78,6 +78,27 @@ test("parseStringPool throws ParseError, not a raw RangeError, for a corrupted s
   expect(() => parseStringPool(corrupted, 0, header)).toThrow(ParseError);
 });
 
+test("readChunkHeader throws ParseError, not a raw RangeError, when fewer than 8 bytes remain", () => {
+  // parseAndroidManifest's chunk-walk loop keeps going as long as
+  // `offset < buf.length`, so when 1-7 trailing bytes remain after an
+  // 8-byte outer document header, readChunkHeader(buf, 8) tries to read a
+  // full 8-byte chunk header out of a buffer that only has 4 bytes left.
+  const buf = Buffer.alloc(12); // 8-byte outer header + 4 trailing garbage bytes
+  expect(() => parseAndroidManifest(buf)).toThrow(ParseError);
+  expect(() => readChunkHeader(buf, 8)).toThrow(ParseError);
+});
+
+test("parseStringPool throws ParseError, not a raw RangeError, when the chunk is too small to contain its own header fields", () => {
+  // A chunk whose declared size is small enough to pass the caller's
+  // outer chunk-size check, but too small to actually hold the
+  // stringCount/styleCount/flags/stringsStart/stylesStart header fields
+  // that parseStringPool reads at fixed offsets from chunkStart.
+  const body = Buffer.alloc(10); // total chunk length 18, less than the 24 bytes the header needs
+  const buf = wrapChunk(0x0001, 28, body);
+  const header = readChunkHeader(buf, 0);
+  expect(() => parseStringPool(buf, 0, header)).toThrow(ParseError);
+});
+
 test("parseAndroidManifest throws ParseError, not a raw RangeError, for a corrupted attributeCount", () => {
   const strings = ["package", "com.example.app", "manifest"];
   const buf = buildMinimalManifestAxml(strings, [{ nameIndex: 0, rawValueIndex: 1, dataType: TYPE_STRING, data: 1 }]);
