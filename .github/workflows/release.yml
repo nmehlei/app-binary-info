@@ -7,13 +7,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: gittools/actions/gitversion/setup@v3
-        with:
-          versionSpec: "5.x"
-      - id: gitversion
-        uses: gittools/actions/gitversion/execute@v3
+      # The version to publish is the tag itself, not something to
+      # recompute here. GitVersion (MainLine mode, GitVersion.yml) is the
+      # authority for deciding what the *next* tag should be - that's run
+      # locally/on main *before* tagging, where GitVersion can actually see
+      # a branch. A tag-triggered workflow checks out in detached HEAD
+      # (BranchName "(no branch)"), which matches none of GitVersion.yml's
+      # branch config and falls back to an "unknown branch" prerelease
+      # scheme - e.g. tag v0.1.1 publishing as 0.1.2-tags-v0-1-1.1 instead
+      # of 0.1.1. Deriving the version from $GITHUB_REF_NAME instead is
+      # both simpler and correct by construction: whatever was tagged is
+      # exactly what gets published, with no re-derivation step to drift.
+      - name: Derive version from tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -23,7 +32,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: npm version ${{ steps.gitversion.outputs.semVer }} --no-git-tag-version --allow-same-version
+      - run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version --allow-same-version
       - run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
