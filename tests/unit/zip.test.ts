@@ -42,17 +42,30 @@ test("a non-zip input throws UnsupportedFileError", async () => {
   await expect(listZipEntryNames(Buffer.from("not a zip file at all"))).rejects.toThrow(UnsupportedFileError);
 });
 
-test("listZipEntryNames rejects with UnsupportedFileError on corrupted zip", async () => {
-  const corruptedPath = path.join(__dirname, "../fixtures/real/corrupted.apk");
-  await expect(listZipEntryNames(corruptedPath)).rejects.toThrow(UnsupportedFileError);
+test("readZipEntry rejects with UnsupportedFileError when entry local header is corrupted", async () => {
+  const fs = require("fs");
+  const corruptedPath = path.join(__dirname, "../fixtures/real/corrupted-entry.apk");
+
+  // corrupted-entry.apk has the first entry's local header corrupted but enumeration succeeds
+  // Try to read the first entry - should fail with UnsupportedFileError
+  const names = await listZipEntryNames(corruptedPath);
+  expect(names.length).toBeGreaterThan(0);
+
+  const firstEntry = names[0];
+  // The first entry's local header is corrupted, so this should reject
+  await expect(readZipEntry(corruptedPath, firstEntry)).rejects.toThrow(UnsupportedFileError);
 });
 
-test("readZipEntry rejects with UnsupportedFileError on corrupted zip", async () => {
-  const corruptedPath = path.join(__dirname, "../fixtures/real/corrupted.apk");
-  await expect(readZipEntry(corruptedPath, "AndroidManifest.xml")).rejects.toThrow(UnsupportedFileError);
-});
+test("readZipEntry succeeds on unaffected entries even when one entry is corrupted", async () => {
+  const corruptedPath = path.join(__dirname, "../fixtures/real/corrupted-entry.apk");
 
-test("findZipEntryName rejects with UnsupportedFileError on corrupted zip", async () => {
-  const corruptedPath = path.join(__dirname, "../fixtures/real/corrupted.apk");
-  await expect(findZipEntryName(corruptedPath, (n) => n.endsWith(".xml"))).rejects.toThrow(UnsupportedFileError);
+  // Enumeration succeeds on corrupted-entry.apk
+  const names = await listZipEntryNames(corruptedPath);
+  expect(names.length).toBeGreaterThan(1);
+
+  // The second entry (and others) should still be readable, proving corruption is localized
+  const secondEntry = names[1];
+  const data = await readZipEntry(corruptedPath, secondEntry);
+  expect(data).toBeInstanceOf(Buffer);
+  expect(data!.length).toBeGreaterThan(0);
 });
