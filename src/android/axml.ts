@@ -11,6 +11,15 @@ export interface ChunkHeader {
   size: number;
 }
 
+/** Guards a structural read against a count/offset value that came from the
+ * file itself, so a corrupted/truncated buffer throws ParseError instead of
+ * a raw Node RangeError. */
+function need(buf: Buffer, offset: number, len: number, what: string): void {
+  if (offset < 0 || len < 0 || offset + len > buf.length) {
+    throw new ParseError(`${what}: read of ${len} bytes at offset ${offset} is outside the ${buf.length}-byte buffer`);
+  }
+}
+
 export function readChunkHeader(buf: Buffer, offset: number): ChunkHeader {
   return {
     type: buf.readUInt16LE(offset),
@@ -30,18 +39,22 @@ export function parseStringPool(buf: Buffer, chunkStart: number, header: ChunkHe
   const isUtf8 = (flags & UTF8_FLAG) !== 0;
 
   const offsetsStart = chunkStart + header.headerSize;
+  need(buf, offsetsStart, stringCount * 4, "string pool offset table");
   const strings: string[] = [];
   for (let i = 0; i < stringCount; i++) {
     const relOffset = buf.readUInt32LE(offsetsStart + i * 4);
     const stringOffset = chunkStart + stringsStart + relOffset;
+    need(buf, stringOffset, 0, "string pool entry");
     strings.push(isUtf8 ? readUtf8PoolString(buf, stringOffset) : readUtf16PoolString(buf, stringOffset));
   }
   return { strings };
 }
 
 function readUtf16PoolString(buf: Buffer, offset: number): string {
+  need(buf, offset, 2, "UTF-16 string pool entry length prefix");
   const charCount = buf.readUInt16LE(offset);
   const start = offset + 2;
+  need(buf, start, charCount * 2, "UTF-16 string pool entry data");
   return buf.toString("utf16le", start, start + charCount * 2);
 }
 
@@ -84,6 +97,7 @@ function extractManifestAttributes(buf: Buffer, chunkStart: number, pool: String
   // ResXMLTree_node: chunk header (8) + lineNumber:u32 + comment:u32 = 16
   // bytes before ResXMLTree_attrExt begins.
   const attrExtStart = chunkStart + 16;
+  need(buf, attrExtStart, 14, "ResXMLTree_attrExt header");
   const attributeStart = buf.readUInt16LE(attrExtStart + 8);
   const attributeSize = buf.readUInt16LE(attrExtStart + 10);
   const attributeCount = buf.readUInt16LE(attrExtStart + 12);
@@ -95,6 +109,7 @@ function extractManifestAttributes(buf: Buffer, chunkStart: number, pool: String
 
   for (let i = 0; i < attributeCount; i++) {
     const attrOffset = attrsBase + i * attributeSize;
+    need(buf, attrOffset, Math.max(attributeSize, 20), "manifest attribute record");
     const nameIdx = buf.readUInt32LE(attrOffset + 4);
     const rawValueIdx = buf.readInt32LE(attrOffset + 8);
     const dataType = buf.readUInt8(attrOffset + 15); // typedValue: size(2)+res0(1)+dataType(1) at +12
@@ -123,14 +138,17 @@ function readUtf8PoolString(buf: Buffer, offset: number): string {
   // one byte, but real large manifests could, so both are decoded properly.
   let pos = offset;
   const readLen = (): number => {
+    need(buf, pos, 1, "UTF-8 string pool entry length prefix");
     const first = buf.readUInt8(pos);
     pos += 1;
     if ((first & 0x80) === 0) return first;
+    need(buf, pos, 1, "UTF-8 string pool entry extended length prefix");
     const second = buf.readUInt8(pos);
     pos += 1;
     return ((first & 0x7f) << 8) | second;
   };
   readLen(); // character count - not needed; byte length below is what we read
   const byteLen = readLen();
+  need(buf, pos, byteLen, "UTF-8 string pool entry data");
   return buf.toString("utf8", pos, pos + byteLen);
 }

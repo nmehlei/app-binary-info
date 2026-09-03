@@ -1,6 +1,7 @@
 import path from "path";
 import { readChunkHeader, parseStringPool, parseAndroidManifest } from "../../src/android/axml";
 import { readZipEntry } from "../../src/zip";
+import { ParseError } from "../../src/errors";
 import { buildMinimalManifestAxml, buildStringPoolChunk, wrapChunk } from "../fixtures/bytes/axmlFixtures";
 
 test("readChunkHeader reads type, headerSize, size as little-endian", () => {
@@ -67,4 +68,27 @@ test("parseAndroidManifest throws ParseError when there's no manifest tag", () =
 test("parseAndroidManifest throws ParseError when the manifest tag has no package attribute", () => {
   const buf = buildMinimalManifestAxml(["versionName"], []);
   expect(() => parseAndroidManifest(buf)).toThrow("no package attribute");
+});
+
+test("parseStringPool throws ParseError, not a raw RangeError, for a corrupted stringCount", () => {
+  const buf = buildStringPoolChunk(["package", "versionName"], false);
+  const corrupted = Buffer.from(buf);
+  corrupted.writeUInt32LE(0xffffff, 8); // stringCount field, way beyond the real string data
+  const header = readChunkHeader(corrupted, 0);
+  expect(() => parseStringPool(corrupted, 0, header)).toThrow(ParseError);
+});
+
+test("parseAndroidManifest throws ParseError, not a raw RangeError, for a corrupted attributeCount", () => {
+  const strings = ["package", "com.example.app", "manifest"];
+  const buf = buildMinimalManifestAxml(strings, [{ nameIndex: 0, rawValueIndex: 1, dataType: TYPE_STRING, data: 1 }]);
+  const corrupted = Buffer.from(buf);
+
+  // Layout: outer doc header (8) + string pool chunk + START_TAG chunk
+  // header (8) + node header (8) + attrExt header, whose attributeCount
+  // field sits at offset 12 within the attrExt header.
+  const pool = buildStringPoolChunk(strings, false);
+  const attributeCountOffset = 8 + pool.length + 8 + 8 + 12;
+  corrupted.writeUInt16LE(0xffff, attributeCountOffset);
+
+  expect(() => parseAndroidManifest(corrupted)).toThrow(ParseError);
 });

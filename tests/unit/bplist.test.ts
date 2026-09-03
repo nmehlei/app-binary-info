@@ -53,6 +53,30 @@ test("throws ParseError for a truncated bplist (shorter than a valid trailer)", 
   expect(() => readBinaryPlistStrings(Buffer.from("bplist00"), ["x"])).toThrow(ParseError);
 });
 
+test("readBinaryPlistStrings throws ParseError, not a raw RangeError, for a corrupted numObjects", () => {
+  const buf = fs.readFileSync(REAL_BPLIST);
+  const corrupted = Buffer.from(buf);
+  const trailerStart = corrupted.length - 32;
+  corrupted.writeBigUInt64BE(BigInt(0xffffffff), trailerStart + 8); // numObjects, way beyond the real object count
+  expect(() => readBinaryPlistStrings(corrupted, ["CFBundleIdentifier"])).toThrow(ParseError);
+});
+
+test("readBinaryPlistStrings throws ParseError, not a raw RangeError, for a corrupted offsetTableOffset", () => {
+  const buf = fs.readFileSync(REAL_BPLIST);
+  const corrupted = Buffer.from(buf);
+  const trailerStart = corrupted.length - 32;
+  corrupted.writeBigUInt64BE(BigInt(corrupted.length + 1000), trailerStart + 24); // offsetTableOffset, past EOF
+  expect(() => readBinaryPlistStrings(corrupted, ["CFBundleIdentifier"])).toThrow(ParseError);
+});
+
+test("readBinaryPlistStrings throws ParseError, not a raw RangeError, for a corrupted topObjectIndex", () => {
+  const buf = fs.readFileSync(REAL_BPLIST);
+  const corrupted = Buffer.from(buf);
+  const trailerStart = corrupted.length - 32;
+  corrupted.writeBigUInt64BE(BigInt(999999), trailerStart + 16); // topObjectIndex, outside the offset table
+  expect(() => readBinaryPlistStrings(corrupted, ["CFBundleIdentifier"])).toThrow(ParseError);
+});
+
 test("reads a short (non-extended-count) string correctly - the real fixture's values are all long enough to need extended encoding, so this covers the other branch", () => {
   // Hand-built minimal bplist: one dict {"a": "hi"} - both key and value
   // short enough to fit their count directly in the marker's low nibble.
